@@ -72,6 +72,15 @@ class Go2Env:
             ),
         )
 
+        # add camera for video recording (must be added before scene.build())
+        self.cam = self.scene.add_camera(
+            res=(1280, 720),
+            pos=(3.5, 0.0, 2.5),
+            lookat=(0.0, 0.0, 0.5),
+            fov=40,
+            GUI=False,
+        )
+
         # build
         self.scene.build(n_envs=num_envs)
 

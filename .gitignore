@@ -1,3 +1,12 @@
 venv/
 __pycache__/
 .DS_Store
+
+# Large model/checkpoint files — don't push to GitHub
+Genesis/checkpoints/
+Genesis/algo_comparison/models/
+Genesis/*.zip
+Genesis/algo_comparison/logs/
+
+# Push training logs (TensorBoard events — large)
+Genesis/push_training_logs/

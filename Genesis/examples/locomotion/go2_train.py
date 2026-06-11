@@ -127,10 +127,10 @@ def get_cfgs():
         "base_height_target": 0.3,
         "feet_height_target": 0.075,
         "reward_scales": {
-            "tracking_lin_vel": 1.0,
+            "tracking_lin_vel": 5.0,    # increased from 1.0 — must walk to get reward
             "tracking_ang_vel": 0.2,
             "lin_vel_z": -1.0,
-            "base_height": -50.0,
+            "base_height": -5.0,        # reduced from -50.0 — was preventing walking
             "action_rate": -0.005,
             "similar_to_default": -0.1,
         },
