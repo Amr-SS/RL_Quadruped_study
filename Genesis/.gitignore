@@ -6,6 +6,8 @@ imgui.ini
 .DS_Store
 sftp-config.json
 *.mp4
+# ...but keep the committed portfolio comparison video
+!docs/comparison/videos/ppo_sac_td3_comparison.mp4
 genesis/assets/terrain/
 
 # Byte-compiled / optimized / DLL files

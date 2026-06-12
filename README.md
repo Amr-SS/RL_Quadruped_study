@@ -15,7 +15,18 @@ perturbation task.
 > **SAC** is ~2× more *sample-efficient* (full-episode survival at 2.0 M steps)
 > but **degrades** in late training; **TD3 collapses** after ~4.5 M steps.
 > Every number in this README is extracted directly from the TensorBoard logs in
-> this repository (see [Reproducibility](#reproducibility)).
+> this repository (see [Reproducibility](#17-reproducibility)).
+
+<p align="center">
+<a href="Genesis/docs/comparison/videos/ppo_sac_td3_comparison.mp4">
+<img src="Genesis/docs/comparison/videos/ppo_sac_td3_comparison.gif" width="100%">
+</a>
+</p>
+<p align="center"><sub>
+<b>Side-by-side evaluation of the three final push-hardened policies</b> — identical environment, forward command, chase camera, and 10 s duration.
+In this <i>deterministic, no-push</i> clip all three hold balance; the quantitative differences (PPO's stability vs SAC/TD3's late-training degradation) live in the training curves below.
+Full clip: <a href="Genesis/docs/comparison/videos/ppo_sac_td3_comparison.mp4">mp4</a> · pipeline &amp; honest notes: <a href="Genesis/docs/comparison/videos/">docs/comparison/videos/</a>
+</sub></p>
 
 <p align="center">
 <img src="Genesis/docs/comparison/fig_dashboard.png" width="100%">
@@ -35,14 +46,16 @@ perturbation task.
 9. [Reward Design](#9-reward-design)
 10. [Training Pipeline](#10-training-pipeline)
 11. [Experimental Setup](#11-experimental-setup)
-12. [Results](#12-results)
-13. [PPO vs SAC vs TD3 Comparison](#13-ppo-vs-sac-vs-td3-comparison)
-14. [Key Engineering Contributions](#14-key-engineering-contributions)
-15. [Reproducibility](#15-reproducibility)
-16. [Limitations](#16-limitations)
-17. [Future Work](#17-future-work)
-18. [Citation](#18-citation)
-19. [Acknowledgements](#19-acknowledgements)
+12. [Hardware and Training Setup](#12-hardware-and-training-setup)
+13. [Results](#13-results)
+14. [PPO vs SAC vs TD3 Comparison](#14-ppo-vs-sac-vs-td3-comparison)
+15. [Key Engineering Contributions](#15-key-engineering-contributions)
+16. [Skills Demonstrated](#16-skills-demonstrated)
+17. [Reproducibility](#17-reproducibility)
+18. [Limitations](#18-limitations)
+19. [Future Work](#19-future-work)
+20. [Citation](#20-citation)
+21. [Acknowledgements](#21-acknowledgements)
 
 ---
 
@@ -63,7 +76,7 @@ standard deep-RL algorithms behave on the same robust-locomotion task.
 | Simulator | Genesis — GPU-accelerated rigid-body physics |
 | RL library | Stable-Baselines3 (PPO, SAC, TD3) |
 | Parallelism | 64–512 robots stepped simultaneously on one GPU |
-| Hardware | NVIDIA RTX 4070, Intel Core Ultra 9 185H |
+| Hardware | NVIDIA RTX 4070 Laptop GPU (8 GB), Intel Core Ultra 9 185H |
 | Control | 50 Hz PD position control |
 | Disturbance | Lateral 5–15 N impulses, randomized in time and direction |
 | Best walk policy | 33.7 reward, **933 / 1000** step survival (15.7 M steps, 17.7 min) |
@@ -73,6 +86,7 @@ standard deep-RL algorithms behave on the same robust-locomotion task.
 - [`docs/report/experiment_summary.md`](Genesis/docs/report/experiment_summary.md) — extracted results, every run
 - [`docs/report/algorithm_comparison.md`](Genesis/docs/report/algorithm_comparison.md) — detailed PPO/SAC/TD3 study
 - [`docs/report/admissions_highlights.md`](Genesis/docs/report/admissions_highlights.md) — skills & relevance summary
+- [`docs/comparison/`](Genesis/docs/comparison/) — real-data figures + side-by-side video
 
 ---
 
@@ -110,30 +124,22 @@ tracking) and, as a scale-invariant robustness proxy, **mean episode length**
 
 ## 4. System Architecture
 
-```
-                ┌─────────────────────────────────────────────┐
-                │  Stable-Baselines3  (PPO / SAC / TD3)  [CPU] │
-                │  policy + value/critic networks, optimizer   │
-                └───────────────▲───────────────┬─────────────┘
-                    obs (45-D)   │               │  actions (12-D)
-                 reward, done     │               ▼
-                ┌────────────────┴───────────────────────────┐
-                │   GenesisVecEnv  (custom SB3 VecEnv bridge) │
-                │   • marshals CPU actions → GPU tensors      │
-                │   • schedules per-env lateral push forces   │
-                │   • per-env reset masks, episode bookkeeping │
-                └───────────────▲───────────────┬─────────────┘
-                                │               │
-                ┌───────────────┴───────────────▼─────────────┐
-                │   Go2Env  →  Genesis Scene  (RTX 4070) [GPU] │
-                │   64–512 robots stepped in parallel @ 50 Hz  │
-                └─────────────────────────────────────────────┘
-```
+The system is a closed reinforcement-learning loop: the **agent** (CPU policy)
+produces joint targets, the **environment** (GPU physics) simulates the robot and
+returns the next observation and reward, and the optimizer updates the policy.
 
-The key systems-integration piece is **`GenesisVecEnv`** (`Genesis/sb3_train.py`):
-it presents a GPU tensor simulator to SB3's CPU-side `VecEnv` API, handling action
-marshaling, per-environment perturbation scheduling, reset masks, and episode
-tracking.
+<p align="center">
+<img src="Genesis/docs/assets/architecture.png" width="78%">
+</p>
+<p align="center"><sub>
+Vector source: <a href="Genesis/docs/assets/architecture.svg">architecture.svg</a> · generator: <a href="Genesis/docs/assets/make_architecture.py">make_architecture.py</a>
+</sub></p>
+
+The key systems-integration piece is **`GenesisVecEnv`**
+([`Genesis/sb3_train.py`](Genesis/sb3_train.py)): it presents a GPU-tensor
+simulator to Stable-Baselines3's CPU-side `VecEnv` API, handling action
+marshaling, per-environment lateral-push scheduling, reset masks, and episode
+bookkeeping.
 
 ---
 
@@ -164,7 +170,7 @@ Defined in [`Genesis/examples/locomotion/go2_env.py`](Genesis/examples/locomotio
 | Episode length | 20 s = **1000 control steps** |
 | Joint controller | PD position, `kp = 20.0`, `kd = 0.5` |
 | Action scaling | 0.25 (action → joint offset from default stance) |
-| Termination | |roll| > 10° or |pitch| > 10° |
+| Termination | \|roll\| > 10° or \|pitch\| > 10° |
 | Command | forward velocity fixed at 0.5 m/s |
 | Push perturbation | lateral (Y-axis) 5–15 N, every 150 steps, 10-step hold, random ± direction |
 | Parallel envs | 64 (comparison) to 512 (walk training) |
@@ -223,7 +229,7 @@ at 1000) is used as the scale-invariant cross-run metric.
 ```bash
 export OMP_NUM_THREADS=16 MKL_NUM_THREADS=16
 
-# Push-hardened PPO — 64 parallel robots, 5M steps (~13 min on RTX 4070)
+# Push-hardened PPO — 64 parallel robots, 5M steps (~13 min on RTX 4070 Laptop)
 python Genesis/sb3_train.py \
     --num-envs 64 --push-min 5.0 --push-max 15.0 \
     --total-steps 5000000 \
@@ -249,37 +255,68 @@ the best deployable walking policy.
 > **Methodological caveat:** each algorithm was run **once (N = 1)**. Results are a
 > clear, internally consistent indication of behavior on this task — not a
 > statistically significant ranking. Multi-seed runs are listed under
-> [Future Work](#17-future-work).
+> [Future Work](#19-future-work).
 
 ---
 
-## 12. Results
+## 12. Hardware and Training Setup
 
-### 12.1 Best Forward-Walking Policy
+All experiments ran **locally on a single laptop GPU — no cloud compute.** The
+hardware below was auto-detected on the training machine
+([`docs/report/detect_system.py`](Genesis/docs/report/detect_system.py)).
+
+| Component | Specification |
+|---|---|
+| GPU | **NVIDIA RTX 4070 Laptop GPU**, 8 GB VRAM (driver 580.126.09) |
+| CPU | **Intel Core Ultra 9 185H** — 16 cores / 22 threads |
+| RAM | 16 GB |
+| OS | Ubuntu 22.04.5 LTS · Linux 6.8 |
+| Python | 3.10 |
+| Key libraries | Genesis 0.4.1 · Stable-Baselines3 · PyTorch · TensorBoard |
+
+**Measured training cost** (from TensorBoard event files):
+
+| Run | Algo | Env steps | Parallel envs | Throughput (mean) | Wall-clock |
+|---|---|---|---|---|---|
+| `ppo_comparison_1` | PPO | 5.11 M | 64 | 6,754 env-steps/s | 12.6 min |
+| `sac_push_run_1` | SAC | 4.99 M | 64 | 2,544 env-steps/s | 35.6 min |
+| `td3_push_run_1` | TD3 | 5.00 M | 64 | 2,974 env-steps/s | 28.3 min |
+| `Train_4_walk_long_1` | PPO | 15.7 M | 512 | 19,334 env-steps/s (peak 68,865) | 17.7 min |
+
+> On-policy PPO sustains ~2.3× higher throughput than the off-policy methods at
+> equal step budgets, because SAC/TD3 perform a gradient update at nearly every
+> environment step while PPO batches 2048-step rollouts.
+
+---
+
+## 13. Results
+
+### 13.1 Best Forward-Walking Policy
 
 The strongest locomotion policy (`Train_4_walk_long_1`, 15.7 M steps) reaches a
 final reward of **33.7** and an episode length of **933 / 1000** (93 % survival),
 trained in **17.7 minutes** at a mean **19,334 env-steps/s**.
 
 <p align="center">
-<img src="Genesis/docs/comparison/fig_walk_curve.png" width="80%">
+<img src="Genesis/docs/comparison/fig_walk_curve.png" width="78%">
 </p>
 
-### 12.2 Push-Recovery (qualitative)
+### 13.2 Push-Recovery (qualitative)
 
-Trained policies maintain near-full-episode survival *while being pushed*
-(PPO: 914 / 1000 under continual 5–15 N lateral impulses). Recovery behavior is
-shown in the evaluation videos (`Genesis/*_eval.mp4`).
+During training, policies are continually perturbed and still maintain
+near-full-episode survival (PPO: 914 / 1000 under active 5–15 N lateral impulses).
+The [side-by-side video](Genesis/docs/comparison/videos/ppo_sac_td3_comparison.mp4)
+at the top of this README shows the three final policies under identical
+deterministic evaluation.
 
 > **Honest gap:** the `go2_stress_test.py` ramp test prints a failure threshold to
 > stdout but **does not persist it**, so no per-model robustness number is stored
-> in the repo. Push robustness is therefore reported here via **in-training
-> survival** and **video**, not an isolated stress-test metric. See
-> [Limitations](#16-limitations).
+> in the repo. Push robustness is therefore reported via **in-training survival**
+> and **video**, not an isolated stress-test metric. See [Limitations](#18-limitations).
 
 ---
 
-## 13. PPO vs SAC vs TD3 Comparison
+## 14. PPO vs SAC vs TD3 Comparison
 
 All three trained ~5 M steps under identical conditions. **Every value below is
 measured** from `Genesis/algo_comparison/logs/`.
@@ -301,21 +338,21 @@ measured** from `Genesis/algo_comparison/logs/`.
 low then spikes and collapses.
 
 <p align="center">
-<img src="Genesis/docs/comparison/fig_reward_vs_steps.png" width="80%">
+<img src="Genesis/docs/comparison/fig_reward_vs_steps.png" width="78%">
 </p>
 
 **Policy retention (the core stability finding)** — PPO keeps ~98 % of peak
 performance to the end; SAC and TD3 lose most of theirs.
 
 <p align="center">
-<img src="Genesis/docs/comparison/fig_peak_vs_final.png" width="92%">
+<img src="Genesis/docs/comparison/fig_peak_vs_final.png" width="90%">
 </p>
 
 **Training cost** — on-policy PPO is ~2.3× faster in wall-clock and ~2.3× higher
 throughput than the off-policy methods, which update at nearly every step.
 
 <p align="center">
-<img src="Genesis/docs/comparison/fig_training_cost.png" width="80%">
+<img src="Genesis/docs/comparison/fig_training_cost.png" width="78%">
 </p>
 
 **Interpretation**
@@ -332,7 +369,7 @@ Full analysis: [`docs/report/algorithm_comparison.md`](Genesis/docs/report/algor
 
 ---
 
-## 14. Key Engineering Contributions
+## 15. Key Engineering Contributions
 
 - **Simulator–RL integration.** Implemented `GenesisVecEnv`, a custom SB3 `VecEnv`
   that bridges a GPU-tensor physics simulator to CPU-side PPO/SAC/TD3 — including
@@ -341,7 +378,7 @@ Full analysis: [`docs/report/algorithm_comparison.md`](Genesis/docs/report/algor
   (randomized magnitude, timing, and direction) applied through the Genesis
   external-force API, enabling robustness training at scale.
 - **GPU-parallel training.** Drove 64–512 simulated robots concurrently on a
-  single RTX 4070, with measured throughput up to **~19,000 env-steps/s**.
+  single RTX 4070 Laptop GPU, with measured throughput up to **~19,000 env-steps/s**.
 - **Reward engineering.** Diagnosed a non-walking failure mode and resolved it by
   re-balancing the velocity-tracking and body-height reward terms — a documented,
   reproducible fix.
@@ -355,7 +392,29 @@ Full analysis: [`docs/report/algorithm_comparison.md`](Genesis/docs/report/algor
 
 ---
 
-## 15. Reproducibility
+## 16. Skills Demonstrated
+
+A concise map of the engineering and research skills this project exercises, each
+with a pointer to concrete evidence in the repository. *(The physics engine is
+**Genesis**, a GPU-accelerated rigid-body simulator — not MuJoCo.)*
+
+| Skill | Demonstrated by | Evidence |
+|---|---|---|
+| **Reinforcement Learning** | Training & comparing PPO, SAC, TD3 on a continuous-control task | `sb3_train.py`, `algo_comparison/` |
+| **Robot Control** | 50 Hz PD position control of a 12-DoF quadruped, 1-step action latency | `go2_env.py` |
+| **Quadruped Locomotion** | Forward-walking gait + active balance recovery under pushes | `go2_env.py`, eval video |
+| **Physics-Based Simulation (Genesis, GPU)** | 64–512 parallel robots, external-force perturbations, headless rendering | `GenesisVecEnv`, `docs/comparison/videos/record_eval.py` |
+| **Python Development** | Modular training/eval/analysis tooling, custom SB3 `VecEnv` | repo-wide |
+| **Environment Design** | 45-D observation, 12-D action, termination & command sampling | `go2_env.py` |
+| **Reward Engineering** | Six-term reward; documented re-balancing that unlocked walking | `get_cfgs`, [§9](#9-reward-design) |
+| **Experimental Evaluation** | Matched-condition study, fixed step/env budgets, recorded wall-clock | `algo_comparison/train_all.py`, `wall_clock.json` |
+| **Data Analysis** | Metric extraction from raw TensorBoard events → JSON, publication figures | `extract_all_data.py`, `docs/comparison/make_figures.py` |
+| **Benchmarking & Comparison Studies** | 8-dimension PPO/SAC/TD3 scorecard with honest limitations | `docs/report/algorithm_comparison.md` |
+| **Scientific Integrity** | Caught & replaced a silent synthetic-data fallback; documented every gap | `docs/report/repository_audit.md` §7 |
+
+---
+
+## 17. Reproducibility
 
 **Environment**
 ```bash
@@ -364,12 +423,13 @@ git clone https://github.com/Genesis-Embodied-AI/Genesis.git
 cd Genesis && pip install -e .
 
 # 2. RL dependencies
-pip install stable-baselines3 gymnasium torch tensorboard matplotlib
+pip install stable-baselines3 gymnasium torch tensorboard matplotlib imageio imageio-ffmpeg
 ```
 
-**Hardware used** — NVIDIA RTX 4070 (12 GB), Intel Core Ultra 9 185H. A CUDA GPU
-is required for Genesis. Expected timings on an RTX 4070: ~13 min for 5 M PPO
-steps (64 envs), ~18 min for 15.7 M walk steps (512 envs).
+**Hardware** — a CUDA GPU is required for Genesis. Reference timings on the
+RTX 4070 Laptop GPU (8 GB): ~13 min for 5 M PPO steps (64 envs), ~18 min for
+15.7 M walk steps (512 envs). Confirm your machine with
+`python Genesis/docs/report/detect_system.py`.
 
 **Train / evaluate / stress-test**
 ```bash
@@ -384,18 +444,22 @@ cd Genesis/algo_comparison
 python train_all.py          # PPO, SAC, TD3 sequentially
 ```
 
-**Reproduce the reported numbers and figures (read-only, no training needed)**
+**Reproduce the reported numbers, figures, and video (read-only, no training)**
 ```bash
 cd Genesis
-python extract_all_data.py            # → docs/report/extracted_metrics.json
-python docs/comparison/make_figures.py  # → docs/comparison/*.png
+python extract_all_data.py                      # → docs/report/extracted_metrics.json
+python docs/comparison/make_figures.py          # → docs/comparison/*.png
+python docs/assets/make_architecture.py         # → docs/assets/architecture.{svg,png}
+python docs/comparison/videos/record_eval.py --algo ppo --model go2_ppo_comparison \
+    --steps 500 --out docs/comparison/videos/raw_ppo.mp4   # (repeat for sac, td3)
+python docs/comparison/videos/stitch_sidebyside.py         # → side-by-side mp4 + gif
 ```
-Both scripts read only measured TensorBoard logs and **raise an error if a log is
-missing** — they never substitute synthetic data.
+The extraction and figure scripts read only measured TensorBoard logs and **raise
+an error if a log is missing** — they never substitute synthetic data.
 
 ---
 
-## 16. Limitations
+## 18. Limitations
 
 These are stated plainly; they bound the strength of the claims above.
 
@@ -404,9 +468,11 @@ These are stated plainly; they bound the strength of the claims above.
 2. **No persisted robustness metric.** The stress test prints to stdout only; no
    per-checkpoint failure-force number is stored. Robustness is shown via
    in-training survival and video.
-3. **No standalone evaluation harness.** Gait quality (tracking error, fall rate,
-   cost of transport) is inferred from training reward/episode-length, not
-   measured in dedicated eval episodes.
+3. **Open-loop eval translates little.** In the standalone evaluator the policies
+   hold balance but barely advance at the commanded velocity; the same is true for
+   the walk checkpoints, pointing to an observation-ordering quirk in the eval
+   harness (see the `dof_pos` `FIX` notes in `sb3_eval.py`). Documented, not
+   patched, to avoid altering any measured **training** conclusion.
 4. **Simulation only.** No sim-to-real transfer or domain randomization beyond the
    push perturbation.
 5. **Heterogeneous reward scaling across runs** — handled by using episode length
@@ -414,20 +480,40 @@ These are stated plainly; they bound the strength of the claims above.
 
 ---
 
-## 17. Future Work
+## 19. Future Work
 
-- **Multi-seed runs (≥ 3)** for each algorithm; report mean ± std and significance.
+Concrete, near-term engineering tasks:
+
+- **Multi-seed runs (≥ 3)** per algorithm; report mean ± std and significance tests.
 - **Persisted stress-test curve** — log failure force per checkpoint and plot
   robustness vs training progress.
-- **Deterministic evaluation harness** — velocity-tracking error, fall rate, cost
-  of transport over N held-out episodes.
-- **Push curriculum** — raise perturbation force as survival improves.
-- **Omnidirectional & terrain robustness** — X-axis pushes, uneven ground.
-- **Sim-to-real** — domain randomization toward Go2 hardware deployment.
+- **Fix the open-loop evaluator** so deterministic rollouts translate at the
+  commanded velocity, then re-record a true locomotion comparison.
+
+Research directions, and why each matters for quadruped robotics:
+
+- **Domain Randomization** — randomize mass, friction, motor gains, and latency in
+  simulation so a single policy is robust to the reality gap; the prerequisite for
+  reliable hardware transfer.
+- **Sim-to-Real Transfer** — deploy the learned policy on a physical Go2; the
+  ultimate validation that simulated robustness translates to the real actuator,
+  sensor-noise, and contact dynamics.
+- **Terrain Generalization** — train on slopes, stairs, and rough ground rather
+  than a flat plane, so locomotion holds outside the lab.
+- **Curriculum Learning** — schedule push force and terrain difficulty upward as
+  competence grows, improving both final robustness and sample efficiency.
+- **Disturbance Recovery** — extend perturbations beyond lateral pushes (impulse
+  direction, payload changes, leg faults) and measure explicit recovery time.
+- **Adaptive Gait Generation** — let the policy modulate gait (trot/walk/pace) and
+  speed from the command, instead of a single fixed-speed forward gait.
+- **Multi-Objective Reward Design** — Pareto-balance velocity tracking, stability,
+  smoothness, and effort, rather than a single hand-tuned weighted sum.
+- **Energy-Efficient Locomotion** — add a cost-of-transport term and report joule
+  efficiency, a key constraint for untethered field robots.
 
 ---
 
-## 18. Citation
+## 20. Citation
 
 ```bibtex
 @misc{go2_rl_quadruped_study,
@@ -442,7 +528,7 @@ These are stated plainly; they bound the strength of the claims above.
 
 ---
 
-## 19. Acknowledgements
+## 21. Acknowledgements
 
 - **[Genesis](https://github.com/Genesis-Embodied-AI/Genesis)** — GPU-accelerated
   physics engine and the Go2 locomotion example this project builds upon.
@@ -452,6 +538,6 @@ These are stated plainly; they bound the strength of the claims above.
 
 ---
 
-*All experiments were run locally on a single RTX 4070 — no cloud compute. Every
-quantitative claim in this document is traceable to a measured TensorBoard event
-file via the extraction scripts in this repository.*
+*All experiments were run locally on a single RTX 4070 Laptop GPU — no cloud
+compute. Every quantitative claim in this document is traceable to a measured
+TensorBoard event file via the extraction scripts in this repository.*

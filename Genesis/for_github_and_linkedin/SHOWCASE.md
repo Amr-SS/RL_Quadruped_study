@@ -10,7 +10,7 @@ Unitree Go2 trained to walk and resist lateral push perturbations using **Genesi
 |---|---|
 | **Robot** | Unitree Go2 (12 DoF quadruped) |
 | **Simulator** | Genesis (GPU-accelerated) |
-| **Hardware** | RTX 4070, Intel Ultra 9 185H |
+| **Hardware** | RTX 4070 Laptop GPU (8 GB), Intel Core Ultra 9 185H |
 | **Parallel envs** | 64–512 robots on a single GPU |
 | **Steps trained** | 5M–15M per run |
 | **Algorithms tested** | PPO, SAC, TD3 |
