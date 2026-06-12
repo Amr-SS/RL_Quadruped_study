@@ -10,3 +10,6 @@ Genesis/algo_comparison/logs/
 
 # Push training logs (TensorBoard events — large)
 Genesis/push_training_logs/
+
+# Optional large raw-curve dump (regenerable via DUMP_RAW=1 python extract_all_data.py)
+Genesis/docs/report/extracted_metrics_raw.json

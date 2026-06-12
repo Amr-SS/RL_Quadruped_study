@@ -58,11 +58,13 @@ All three algorithms trained on the same push-hardened task (5–15 N lateral fo
 
 ![Reward vs Time](algo_comparison/reward_vs_time.png)
 
-| Algorithm | Training Time (5M steps) | Notes |
-|---|---|---|
-| PPO | ~20 min | Fastest per step |
-| TD3 | 28.3 min | More stable convergence |
-| SAC | 35.6 min | Slowest, but smoothest policy |
+| Algorithm | Time (~5M steps) | Final reward | Final survival | Notes |
+|---|---|---|---|---|
+| **PPO** | **12.6 min** | **34.3** | **914 / 1000** | Most stable; retains 98% of peak |
+| TD3 | 28.3 min | 6.7 | 147 / 1000 | Peaks at 4.5M then **collapses** |
+| SAC | 35.6 min | 18.8 | 547 / 1000 | Fastest to peak (2M steps) but **degrades** |
+
+*All values measured from TensorBoard logs — see [`../docs/report/algorithm_comparison.md`](../docs/report/algorithm_comparison.md).*
 
 ### Convergence Speed
 
@@ -98,7 +100,7 @@ python go2_stress_test.py  # MODE = "sb3" at top of file
 ## How to Reproduce
 
 ```bash
-# Train push-hardened model (64 envs, 5M steps, RTX 4070 ~15-20 min)
+# Train push-hardened model (64 envs, 5M steps, RTX 4070 ~13 min)
 python sb3_train.py \
     --num-envs 64 \
     --push-min 5.0 \
@@ -119,15 +121,26 @@ cd algo_comparison && python train_all.py
 
 ---
 
-## Key Findings
+## Key Findings (measured)
 
-1. **PPO trains fastest** — 64 parallel envs on GPU gives ~300k steps/min on RTX 4070
-2. **Push hardening works** — robot learns to compensate for lateral impulses and recover balance
-3. **SAC produces the smoothest gait** but takes ~75% longer than PPO to train
-4. **TD3 is the best balance** — faster than SAC, more stable reward curve than PPO
-5. **512 parallel envs** (v2 walk) dramatically improves sample efficiency vs 64 envs
-6. **Reward shaping matters** — reducing base_height penalty from -50 → -5 unlocked proper walking behavior
+1. **PPO is the best overall policy** — highest final reward (34.3), longest survival
+   (914/1000 steps under active pushes), and fastest to train (12.6 min, ~6.7k fps).
+2. **PPO is the most stable** — it retains **98%** of its peak performance to the end of
+   training, versus 53% (SAC) and 25% (TD3).
+3. **SAC is the most sample-efficient but fragile** — reaches full-episode survival
+   (1001 steps) at just 2.0M steps (½ of PPO's budget), then **degrades**.
+4. **TD3 is the least stable** — peaks near 4.5M steps then **collapses** to 147-step survival.
+5. **Push hardening works** — the trained policy maintains balance under continual 5–15 N
+   lateral impulses (qualitative; no persisted stress-test metric — see audit).
+6. **Reward shaping was decisive** — raising `tracking_lin_vel` (1.0 → 5.0) and softening
+   `base_height` (−50 → −5) unlocked walking.
+
+> ⚠️ An earlier version of this file claimed "TD3 is the best balance" and "SAC produces
+> the smoothest gait." Re-extracting the raw TensorBoard logs showed the opposite — both
+> off-policy methods degrade while PPO stays stable. The numbers above are the corrected,
+> measured findings. Full analysis: [`../docs/report/algorithm_comparison.md`](../docs/report/algorithm_comparison.md).
 
 ---
 
-*All training done locally on a single RTX 4070 GPU (no cloud compute).*
+*All training done locally on a single RTX 4070 GPU (no cloud compute). Every number is
+traceable to a TensorBoard event file via `../extract_all_data.py`.*

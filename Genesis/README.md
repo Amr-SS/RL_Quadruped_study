@@ -1,189 +1,69 @@
-# RL Quadruped Study — Unitree Go2 Push Hardening
+# RL Quadruped Study — Unitree Go2 (project files)
 
-Training a **Unitree Go2** quadruped to walk and resist lateral push perturbations using **SB3 PPO/SAC/TD3** + **Genesis physics engine** — all on a single RTX 4070.
+> This folder contains the project code, logs, and results. For the full
+> research-style write-up with results and figures, see the **[root README](../README.md)**.
 
----
-
-## What This Is
-
-A complete RL locomotion study on the Go2 robot that covers:
-- **Baseline PPO** walking policy (Genesis native RSL-RL)
-- **Push-hardened PPO** — robot trained to survive 5–15 N lateral impulses
-- **64-env and 512-env** parallel training on GPU
-- **PPO vs SAC vs TD3** head-to-head comparison on the push task
-- **Stress test** script that ramps force until the robot falls
+Training a Unitree Go2 to walk and resist lateral push perturbations using
+**Stable-Baselines3 (PPO / SAC / TD3)** on the **Genesis** GPU physics engine.
 
 ---
 
-## Tech Stack
+## Documentation
 
-| Component | Details |
+| Document | Contents |
 |---|---|
-| Physics | [Genesis](https://github.com/Genesis-Embodied-AI/Genesis) — GPU-accelerated rigid-body sim |
-| RL | [Stable-Baselines3](https://stable-baselines3.readthedocs.io/) PPO / SAC / TD3 |
-| Robot | Unitree Go2 — 12 DoF, URDF loaded in Genesis |
-| Hardware | RTX 4070, Intel Ultra 9 185H |
-| Parallel envs | 64–512 robots simulated simultaneously on GPU |
+| [`../README.md`](../README.md) | Full research-style README (overview → results → comparison) |
+| [`docs/report/repository_audit.md`](docs/report/repository_audit.md) | Complete repository audit |
+| [`docs/report/experiment_summary.md`](docs/report/experiment_summary.md) | Extracted results for every run |
+| [`docs/report/algorithm_comparison.md`](docs/report/algorithm_comparison.md) | Detailed PPO vs SAC vs TD3 study |
+| [`docs/report/admissions_highlights.md`](docs/report/admissions_highlights.md) | Skills & relevance summary |
+| [`docs/comparison/`](docs/comparison/) | Real-data-only publication figures + generator |
 
 ---
 
-## Results
-
-### Training Progression
-
-![Reward Comparison](for_github_and_linkedin/training_graphs/comparison_ep_rew.png)
-
-![Ep Len Comparison](for_github_and_linkedin/training_graphs/comparison_ep_len.png)
-
-### Push-Hardened 64-Env Run
-
-![Push Hardened Metrics](for_github_and_linkedin/training_graphs/go2_64env_2_metrics.png)
-
-### Walk Policy — 512 Parallel Envs (Best Run)
-
-![512env Walk Metrics](for_github_and_linkedin/training_graphs/v2_walk_512env_1_metrics.png)
-
----
-
-## Algorithm Comparison — PPO vs SAC vs TD3
-
-Same task: 5–15 N lateral push, 64 parallel envs, 5M training steps each.
-
-### Combined Dashboard
-
-![Algo Comparison](for_github_and_linkedin/algo_comparison/combined_dashboard.png)
-
-### Reward vs Wall-Clock Time
-
-![Reward vs Time](for_github_and_linkedin/algo_comparison/reward_vs_time.png)
-
-| Algorithm | Training Time (5M steps) | Winner |
-|---|---|---|
-| PPO | ~20 min | Fastest |
-| TD3 | 28.3 min | Best balance |
-| SAC | 35.6 min | Smoothest gait |
-
-### Convergence & Stability
-
-| | |
-|---|---|
-| ![Convergence](for_github_and_linkedin/algo_comparison/convergence_bar.png) | ![Stability](for_github_and_linkedin/algo_comparison/stability_std.png) |
-
----
-
-## Stress Test Results
-
-`go2_stress_test.py` ramps lateral force every 150 steps until the robot falls.
-
-| Model | Failure Threshold |
-|---|---|
-| RSL-RL `model_100.pt` (baseline) | 25 N |
-| SB3 PPO push-hardened (this repo) | Run `go2_stress_test.py` to measure |
-
----
-
-## Files
+## Key Files
 
 | File | Purpose |
 |---|---|
-| `sb3_train.py` | Main training script — PPO with push perturbations, configurable envs/force |
-| `sb3_eval.py` | Load a checkpoint and render/record it in Genesis viewer |
-| `sb3_train_v2.py` | V2 walk training — higher env count, tuned reward shaping |
-| `go2_stress_test.py` | Ramp lateral force until robot falls, report failure Newton value |
-| `algo_comparison/` | PPO vs SAC vs TD3 comparison scripts + plots |
-| `examples/locomotion/go2_env.py` | Go2 gym environment — rewards, observations, push mechanics |
-| `examples/locomotion/go2_train.py` | Original Genesis RSL-RL baseline config |
-| `for_github_and_linkedin/` | Key plots and results for showcase |
+| `examples/locomotion/go2_env.py` | Go2 environment — dynamics, observation, reward, termination |
+| `examples/locomotion/go2_train.py` | Config source-of-truth + RSL-RL baseline |
+| `sb3_train.py` | PPO push-hardening trainer (`GenesisVecEnv` SB3 bridge) |
+| `sb3_eval.py` | Load checkpoint → render or record mp4 |
+| `go2_stress_test.py` | Ramp lateral force until fall |
+| `algo_comparison/` | PPO / SAC / TD3 trainers, logs, plots |
+| `extract_all_data.py` | Ground-truth metric extraction → JSON |
+| `docs/comparison/make_figures.py` | Real-data-only figure generator (no synthetic fallback) |
 
 ---
 
-## Setup
+## Quick Start
 
 ```bash
-git clone https://github.com/Genesis-Embodied-AI/Genesis.git
-cd Genesis
-pip install -e .
-pip install stable-baselines3 gymnasium torch
+export OMP_NUM_THREADS=16 MKL_NUM_THREADS=16
 
-# Clone this repo into your Genesis folder
-git clone https://github.com/Amr-SS/RL_Quadruped_study.git .
-```
+# Train push-hardened PPO (64 envs, 5M steps, ~13 min on RTX 4070)
+python sb3_train.py --num-envs 64 --push-min 5.0 --push-max 15.0 \
+    --total-steps 5000000 --run-name go2_64env --save-name go2_push_hardened_64env
 
----
-
-## Train
-
-```bash
-export OMP_NUM_THREADS=16
-export MKL_NUM_THREADS=16
-
-# Push-hardened PPO (64 envs, ~15-20 min on RTX 4070)
-python sb3_train.py \
-    --num-envs 64 \
-    --push-min 5.0 \
-    --push-max 15.0 \
-    --total-steps 5000000 \
-    --run-name "go2_64env" \
-    --save-name "go2_push_hardened_64env"
-```
-
-Checkpoints saved every 500K steps to `./checkpoints/`
-
----
-
-## Evaluate
-
-```bash
+# Evaluate / stress-test
 python sb3_eval.py
-# Edit MODEL_PATH at top of file to point to a checkpoint
-# Set RECORD_VIDEO = True to save mp4
-```
-
----
-
-## Stress Test
-
-```bash
 python go2_stress_test.py
-# Edit MODE = "sb3" or "rsl" at top of file
-# Baseline to beat: 25N (RSL-RL model_100.pt)
+
+# Reproduce reported numbers & figures (no training needed)
+python extract_all_data.py
+python docs/comparison/make_figures.py
 ```
 
 ---
 
-## Run Algo Comparison
+## Headline Result
 
-```bash
-cd algo_comparison
-python train_all.py          # trains PPO, SAC, TD3 sequentially
-python generate_plots.py     # generates comparison plots
-```
+On the push-hardening task (~5M steps, 64 envs, identical config), **PPO** is the
+best overall policy — **914 / 1000**-step survival under active 5–15 N pushes,
+**98 %** peak-performance retention, and **~2.3× faster** training than the
+off-policy methods. **SAC** is ~2× more sample-efficient but unstable; **TD3**
+collapses late. Full data and figures in the [root README](../README.md) and
+[`docs/report/`](docs/report/).
 
----
-
-## Monitor Training
-
-```bash
-tensorboard --logdir ./push_training_logs/
-# open http://localhost:6006
-```
-
-Key metrics:
-- `ep_len_mean` — survival time (target: 1000+)
-- `ep_rew_mean` — reward accumulation (target: 2.0+)
-- `explained_variance` — value function quality (target: 0.7+)
-
----
-
-## Key Findings
-
-1. **PPO trains fastest** on this task — 64 parallel GPU envs gives ~300k steps/min on RTX 4070
-2. **Push hardening works** — robot learns active balance recovery against lateral impulses
-3. **Reward shaping is critical** — reducing `base_height` penalty from -50 → -5 unlocked proper walking
-4. **512 parallel envs** dramatically improves sample efficiency vs 64 envs
-5. **SAC produces the smoothest gait** but is ~75% slower to train than PPO
-6. **TD3 is the best balance** — faster than SAC, more stable reward curve than PPO
-
----
-
-*All training on a single RTX 4070 — no cloud compute.*
+*All numbers are extracted directly from the TensorBoard logs in this repo — see
+`extract_all_data.py`.*
